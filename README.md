@@ -7,7 +7,7 @@ Code accompanying article "A latent class linear mixed model for monotonic conti
 This repository contains five files and one folder:
 
 ### JAGS models
-The JAGS code for the proposed models is located in files:
+The JAGS code for the described models is located in files:
 * `lclmm_Kclasses_lclmm.jag` - latent class linear mixed model pre-label switching
 * `lclmm_Kclasses_lclmm_labelswitching.jag` - latent class linear mixed model post-label switching
 * `lclmm_Kclasses_error_NOincrease.jag` - proposed model pre-label switching
