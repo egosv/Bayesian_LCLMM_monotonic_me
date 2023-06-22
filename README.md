@@ -4,7 +4,7 @@ Code accompanying article "A latent class linear mixed model for monotonic conti
 (1) Department of Epidemiology and Biostatistics, University of Western Ontario, Dalla Lana School of Public Health and Department of Statistical Sciences, University of Toronto, and Department of Biostatistics and Schroeder Arthritis Institute, University Health Network, Canada
 (2) Departamento de Matemáticas, Facultad de Ciencias, Universidad Nacional Autónoma de México, Ciudad de México, Mexico.
 
-This repository contains four files and two folders, as described below:
+This repository contains the following files:
 
 ### JAGS models
 The JAGS code for the proposed models is located in files:
@@ -13,10 +13,10 @@ The JAGS code for the proposed models is located in files:
 * `lclmm_Kclasses_error_NOincrease.jag` - proposed model pre-label switching
 * `lclmm_Kclasses_error_NOincrease_labelswitching.jag` - proposed model post-label switching
 
-### Simulation
-Contains file "lclmm_Kclasses_error_NOincrease.R", which produces an analogous analysis to the one described in Section 5 ‘Simulation example’, but with simulated data and without cross-validation. 
+### Simulation code
+File "lclmm_Kclasses_error_NOincrease.R", which produces an analogous analysis to the one described in Section 5 ‘Simulation example’, but with simulated data and without cross-validation. 
 
-### AppOAI
+### Ilustration code
 This folder contains detailed R scrips to reproduce the analysis performed on the motivating data from the Osteoarthritis Initiative (OAI). Note that no data from the OAI were made available. Researchers can request access to these data through [this link](https://nda.nih.gov/oai/), which containts more information of the study.
 
 
