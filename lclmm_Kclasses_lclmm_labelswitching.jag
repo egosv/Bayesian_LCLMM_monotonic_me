@@ -1,0 +1,59 @@
+/*
+Latent Class Linear Mixed Models
+Bayesian growth mixture model
+*/
+
+model{
+
+### MODEL
+for(j in 1:n){	
+	
+### Likelihood 1st, 2nd,3rd,…,Kth examination 
+   for(i in (offset[j]):(offset[j+1]-1)){		
+      Wtrue[i] ~ dnorm(eta[i],invtau2)
+      eta[i] <- beta0 + inprod(X[i,],beta) + inprod(U[i,],lambda[g[j],]) + inprod(Z[i,],gama[j,]) 
+   }
+
+### Random effects
+   gama[j,1:M] ~ dmnorm(zeros.gama, invGama0[1:M,1:M]) 
+
+} 
+
+### PRIOR 
+beta0 ~ dnorm(0,0.01)
+beta ~ dmnorm(zeros.beta,prior.betaB)
+###beta[1] ~ dnorm(0,0.01)
+###beta[2] ~ dnorm(0,0.01)
+
+for(l in 1:(K-1)){
+   lambdaaux[l] ~ dnorm(0,0.01)###T(0,50) 
+}
+lambda[1,1] <- 0
+lambda[2:K,1] <- sort(lambdaaux)
+for(k in 1:K){
+   for(l in 2:P){
+      lambda[k,l] ~ dnorm(0,0.01) 
+   } 
+} 
+
+invtau2 ~ dgamma(2,tau2_prior)
+tau2_prior ~ dgamma(0.5,10/R2w) 
+tau2 <- pow(invtau2,-1)
+
+invGama0[1:M,1:M] <- inverse(Gama0[1:M,1:M])
+L.Gama0[1,1] <- 1.0
+for(i in 2:M){
+   L.Gama0[i,i] ~ dgamma(0.1,0.1)
+   for(j in 1:(i-1)){
+      L.Gama0[i,j] ~ dnorm(0,0.1)
+      L.Gama0[j,i] <- 0.0
+   }
+}
+for(i in 1:M){
+   for(j in 1:M){
+      Gama0[i,j] <- inprod(L.Gama0[i,1:M],L.Gama0[j,1:M])
+   }
+}
+
+}
+
