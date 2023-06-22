@@ -16,7 +16,7 @@ The JAGS code for the proposed models is located in files:
 ### Simulation code
 File "lclmm_Kclasses_error_NOincrease.R", which produces an analogous analysis to the one described in Section 5 ‘Simulation example’, but with simulated data and without cross-validation. 
 
-### Ilustration code
+### AppOAI
 This folder contains detailed R scrips to reproduce the analysis performed on the motivating data from the Osteoarthritis Initiative (OAI). Note that no data from the OAI were made available. Researchers can request access to these data through [this link](https://nda.nih.gov/oai/), which containts more information of the study.
 
 
