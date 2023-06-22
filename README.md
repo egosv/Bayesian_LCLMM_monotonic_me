@@ -20,7 +20,7 @@ Contains file "lclmm_Kclasses_error_NOincrease.R", which produces an analogous a
 This folder contains detailed R scrips to reproduce the analysis performed on the motivating data from the Osteoarthritis Initiative (OAI). Note that no data from the OAI were made available. Researchers can request access to these data through [this link](https://nda.nih.gov/oai/), which containts more information of the study.
 
 
-####################################################################################################
+###########################################################################
 
 To run the files in a local computer, do the following.
  
@@ -32,4 +32,4 @@ To run the files in a local computer, do the following.
 
 4.- Run the R files within each folder to simulate/process the data, estimate the parameters of the model, and visualize the results.
 
-####################################################################################################
+###########################################################################
