@@ -4,7 +4,7 @@ Code accompanying article "A latent class linear mixed model for monotonic conti
 (1) Department of Epidemiology and Biostatistics, University of Western Ontario, Dalla Lana School of Public Health and Department of Statistical Sciences, University of Toronto, and Department of Biostatistics and Schroeder Arthritis Institute, University Health Network, Canada
 (2) Departamento de Matemáticas, Facultad de Ciencias, Universidad Nacional Autónoma de México, Ciudad de México, Mexico.
 
-This repository contains the following files:
+This repository contains five files and one folder:
 
 ### JAGS models
 The JAGS code for the proposed models is located in files:
