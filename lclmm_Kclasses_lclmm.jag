@@ -25,16 +25,17 @@ for(j in 1:n){
 for(j in 1:n){		
    g[j] ~ dcat(w[j,1:K]) ### Latent class indicator
    for(k in 1:K){
-      w[j,k] <- ppi[j,k]/sum(ppi[j,1:K])       log(ppi[j,k]) <- inprod(V[j,],alpha[k,])  
+      w[j,k] <- ppi[j,k]/sum(ppi[j,1:K]) 
+      log(ppi[j,k]) <- inprod(V[j,],alpha[k,])  
    }
 } 
 
 ### PRIOR 
 beta0 ~ dnorm(0,0.01)
-beta ~ dmnorm(zeros.beta,prior.betaB)
-###beta[1] ~ dnorm(0,0.01)
-###beta[2] ~ dnorm(0,0.01)
-
+### beta ~ dmnorm(zeros.beta,prior.betaB)
+for(l in 1:L){
+   beta[l] ~ dnorm(0,0.01)
+}
 for(l in 1:(K-1)){
    lambdaaux[l] ~ dnorm(0,0.01)###T(0,50) 
 }
@@ -45,7 +46,6 @@ for(k in 1:K){
       lambda[k,l] ~ dnorm(0,0.01) 
    } 
 } 
-
 invtau2 ~ dgamma(2,tau2_prior)
 tau2_prior ~ dgamma(0.5,10/R2w) 
 tau2 <- pow(invtau2,-1)

@@ -13,6 +13,8 @@ for(j in 1:n){
       Yerror[i] ~ dnorm(Wtrue[i],invsigma2[g[j]])
       Wtrue[i] ~ dnorm(eta[i],invtau2)
       eta[i] <- beta0 + inprod(X[i,],beta) + inprod(U[i,],lambda[g[j],]) + inprod(Z[i,],gama[j,]) 
+
+      log_lik0[i] <- logdensity.norm(Yerror[i],Wtrue[i],invsigma2[g[j]]) 
    }
 
 ### 2nd,3rd,…,(K)th examination
@@ -20,19 +22,22 @@ for(j in 1:n){
       Yerror[i] ~ dnorm(Wtrue[i],invsigma2[g[j]])
       Wtrue[i] ~ dnorm(eta[i],invtau2)T(,Wtrue[i-1])
       eta[i] <- beta0 + inprod(X[i,],beta) + inprod(U[i,],lambda[g[j],]) + inprod(Z[i,],gama[j,]) 
+
+      log_lik0[i] <- logdensity.norm(Yerror[i],Wtrue[i],invsigma2[g[j]]) 
    }
 
 ### Random effects
    gama[j,1:M] ~ dmnorm(zeros.gama, invGama0[1:M,1:M]) 
 
+   LogLik[j] <- sum(log_lik0[(offset[j]):(offset[j+1]-1)])
 } 
 
 ### PRIOR 
 beta0 ~ dnorm(0,0.01)
-beta ~ dmnorm(zeros.beta,prior.betaB)
-###beta[1] ~ dnorm(0,0.01)
-###beta[2] ~ dnorm(0,0.01)
-
+### beta ~ dmnorm(zeros.beta,prior.betaB)
+for(l in 1:L){
+   beta[l] ~ dnorm(0,0.01)
+}
 for(l in 1:(K-1)){
    lambdaaux[l] ~ dnorm(0,0.01)###T(0,50) 
 }
@@ -42,25 +47,22 @@ for(k in 1:K){
    for(l in 2:P){
       lambda[k,l] ~ dnorm(0,0.01) 
    } 
-}
-
-for(k in 1:K){ 
    invsigma2[k] ~ dgamma(2,sigma2_prior[k])
    sigma2_prior[k] ~ dgamma(0.5,10/R2w) 
 } 
 sigma2 <- pow(invsigma2,-1)
 
 ### invtau2 ~ dgamma(2,tau2_prior)
-### tau2_prior ~ dgamma(0.5,10/R2w) 
+tau2_prior ~ dgamma(0.5,10/R2w) 
 invtau2 <- 1
 tau2 <- pow(invtau2,-1)
 
 invGama0[1:M,1:M] <- inverse(Gama0[1:M,1:M])
 L.Gama0[1,1] <- 1.0
 for(i in 2:M){
-   L.Gama0[i,i] ~ dgamma(0.1,0.1)
+   L.Gama0[i,i] ~ dgamma(1,1)
    for(j in 1:(i-1)){
-      L.Gama0[i,j] ~ dnorm(0,0.1)
+      L.Gama0[i,j] ~ dnorm(0,1)
       L.Gama0[j,i] <- 0.0
    }
 }
