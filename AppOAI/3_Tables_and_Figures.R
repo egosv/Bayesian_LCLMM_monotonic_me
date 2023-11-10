@@ -1,11 +1,12 @@
 ###--------------------------------------------------
 # Latent Class Linear Mixed Models
-# Growth Mixture Models
 # Continuous response
 # K classes
 # Generate tables and figures
 ###--------------------------------------------------
-### Paquetes
+### Packages needed
+library(reportRmd)
+library(xtable)
 library(ggplot2)
 library(rjags)
 library(R2jags)
@@ -15,7 +16,7 @@ library(patchwork)
 # remotes::install_github("davidsjoberg/ggsankey")
 library(ggsankey)
 library(dplyr)
-
+library(loo) # WAIC, and LOO
 
 
 ###--------------------------------------------------
@@ -67,10 +68,10 @@ for(i in 2:nrow(data0b)){
 offset <- c(offset,nrow(data0b)+1)
 
 Yerror = data0b[,outcome]
-X = cbind(data0b$AGE_BL, data0b$SEXM)  
+X = cbind(data0b$AGE_BL, data0b$SEXM, data0b$BMI, data0b$WOMTSmax)
 Z = cbind(rep(1,nrow(data0b)),data0b$TIMEyr)
 U = cbind(rep(1,nrow(data0b)),data0b$TIMEyr,data0b$TIMEyr2)   
-V = cbind(data0b$BMI, data0b$WOMTSmax)
+V = cbind(data0b$AGE_BL, data0b$SEXM, data0b$BMI)[data0b$VISIT=="V00", ]
 
 n = length(unique(data0b$ID))
 TT = 7
@@ -84,7 +85,7 @@ ID1 = ID0[as.character(data0b$ID),"ID"]
 data1 <- with(data0b, data.frame("id"=ID1, "Yerror"=Yerror, 
                                  "time"=TIMEyr, "time2"=TIMEyr2, 
                                  "x1"=AGE_BL, "x2"=SEXM, 
-                                 "v1"=BMI, "v2"=WOMTSmax) )
+                                 "x3"=BMI, "x4"=WOMTSmax) )
 str(data1)
 
 ### Baseline summary (Table 1):
@@ -107,7 +108,7 @@ if( !file.exists(paste0(savepath,"/FigMCMJSWsum_trajectories.png")) ){
 }
 
 
-# Figure 2
+# Figure 3
 plotbyclass <- function(labswiobj, labswimethod) {
   data1$ga <- labswiobj$clusters[labswimethod,data1$id]
   data1$Class <- factor(data1$ga)
@@ -136,13 +137,16 @@ for( K in 2:5 ){
   assign(paste0("labswi_NOincr_k",K),labswi)
   assign(paste0("sample3a_NOincr_k",K),sample3a)
   assign(paste0("sample3b_NOincr_k",K),sample3b)
-  
+  assign(paste0("jagsfit3a_k",K),jagsfit3a)
+  assign(paste0("jagsfit3b_k",K),jagsfit3b)
   
   load(file = paste0(savepath,'/Sample3_K=',K,"_lclmm_OAI.RData"))
   # loads labswi, sample3a, sample3b
   assign(paste0("labswi_lclmm_k",K),labswi)
   assign(paste0("sample3a_lclmm_k",K),sample3a)
   assign(paste0("sample3b_lclmm_k",K),sample3b)
+  assign(paste0("jagsfit3alcmm_k",K),jagsfit3alcmm)
+  assign(paste0("jagsfit3blcmm_k",K),jagsfit3blcmm)
   
   ### Make plots for each method
   for( methodid in c("STEPHENS","ECR-ITERATIVE-1") )
@@ -165,99 +169,7 @@ if( !file.exists(paste0(savepath,"/FigMCMJSWsum_classes_ECR1.png")) ){
   ggsave(pecr1, filename = paste0(savepath,"/FigMCMJSWsum_classes_ECR1.png"), width = 12, height = 18, units = "in", dpi = 300)
 }
 
-### Table summaries for K=2 (ECR-1)
-K=2
-tabA <- summary(get(paste0("sample3b_lclmm_k",K)))$statistics
-tabB <- summary(get(paste0("sample3b_NOincr_k",K)))$statistics
-# rownames(tabA) %in% rownames(tabB)
-# rownames(tabB) %in% rownames(tabA)
-Parameter <- rownames(tabB)
-## reorder to show betas first
-betasidx <- which(grepl("beta", Parameter))
-Parameter <- Parameter[c(betasidx,(1:length(Parameter))[-betasidx])]
-tabsummK2 <- data.frame(Parameter, 
-                        tabA[match(Parameter,rownames(tabA)),1:2], 
-                        tabB[match(Parameter,rownames(tabB)),1:2])
-
-print(xtable::xtable(tabsummK2, digits = 3), include.rownames=F)
-
-# \begin{table}[ht]
-# \centering
-# \begin{tabular}{lrrrr}
-# \hline
-# Parameter & Mean & SD & Mean.1 & SD.1 \\ 
-# \hline
-# beta[1] & -0.065 & 0.005 & -0.070 & 0.007 \\ 
-# beta[2] & 0.738 & 0.102 & 0.640 & 0.127 \\ 
-# beta0 & 11.606 & 0.346 & 12.254 & 0.456 \\ 
-# Gama0[1,1] & 1.000 & 0.000 & 1.000 & 0.000 \\ 
-# Gama0[2,1] & 0.029 & 0.006 & 0.111 & 0.022 \\ 
-# Gama0[1,2] & 0.029 & 0.006 & 0.111 & 0.022 \\ 
-# Gama0[2,2] & 0.031 & 0.003 & 0.086 & 0.021 \\ 
-# deviance & 9008.718 & 73.944 & 7209.069 & 82.481 \\ 
-# invGama0[1,1] & 1.029 & 0.012 & 1.194 & 0.106 \\ 
-# invGama0[2,1] & -0.970 & 0.236 & -1.670 & 0.669 \\ 
-# invGama0[1,2] & -0.970 & 0.236 & -1.670 & 0.669 \\ 
-# invGama0[2,2] & 33.615 & 3.447 & 14.914 & 4.732 \\ 
-# lambda[1,1] & 0.000 & 0.000 & 0.000 & 0.000 \\ 
-# lambda[2,1] & 0.367 & 0.112 & 0.123 & 0.135 \\ 
-# lambda[1,2] & -0.375 & 0.031 & 0.521 & 0.087 \\ 
-# lambda[2,2] & -0.091 & 0.029 & 5.408 & 0.440 \\ 
-# lambda[1,3] & -0.009 & 0.003 & -0.109 & 0.011 \\ 
-# lambda[2,3] & 0.001 & 0.003 & -0.595 & 0.058 \\ 
-# sigma2[1] &  &  & 1.055 & 0.058 \\ 
-# sigma2[2] &  &  & 0.217 & 0.009 \\ 
-# tau2 & 0.749 & 0.023 & 1.000 & 0.000 \\ 
-# \hline
-# \end{tabular}
-# \end{table}
-
-# DIC
-DICres <- data.frame()
-for( K in 2:5 ){
-  # K=2
-  all <- as.matrix(get(paste0("sample3a_lclmm_k",K)), iters = TRUE, chains=TRUE)
-  pD <- var(all[,"deviance"])/2
-  DIClclmma <- mean(all[,"deviance"]) + pD
-  
-  all <- as.matrix(get(paste0("sample3b_lclmm_k",K)), iters = TRUE, chains=TRUE)
-  pD <- var(all[,"deviance"])/2
-  DIClclmmb <- mean(all[,"deviance"]) + pD
-  
-  all <- as.matrix(get(paste0("sample3a_NOincr_k",K)), iters = TRUE, chains=TRUE)
-  pD <- var(all[,"deviance"])/2
-  DICnoincra <- mean(all[,"deviance"]) + pD
-  
-  all <- as.matrix(get(paste0("sample3b_NOincr_k",K)), iters = TRUE, chains=TRUE)
-  pD <- var(all[,"deviance"])/2
-  DICnoincrb <- mean(all[,"deviance"]) + pD
-  
-  dtK <- data.frame(K=K, 
-                         LS=c("STEPHENS", "ECR-1"), 
-                         LCLMM = c(DIClclmma, DIClclmmb),
-                         Proposal=c(DICnoincra, DICnoincrb)
-                         )
-  DICres <- rbind(DICres, dtK)
-}
-
-print(xtable::xtable(DICres[DICres$LS=="ECR-1",-2], digits = 2), include.rownames=F)
-
-# \begin{table}[ht]
-# \centering
-# \begin{tabular}{rrr}
-# \hline
-# K & LCLMM & Proposal \\ 
-# \hline
-# 2 & 11742.55 & 10610.65 \\ 
-# 3 & 11617.80 & 10618.83 \\ 
-# 4 & 11219.53 & 9954.37 \\ 
-# 5 & 11029.15 & 9676.65 \\ 
-# \hline
-# \end{tabular}
-# \end{table}
-
-
-## Figure 3 - Sankey plots
+## Figure 4 - Sankey plots
 Classes_df <- data.frame()
 for( K in 2:5 ){
   # K=2
@@ -308,9 +220,77 @@ for( mod in c("Noincr","LCLMM") ){
 
 psankeyscr1 <- plot_LCLMM_ECR1 + plot_Noincr_ECR1
 
-if( !file.exists(paste0(savepath,"/FigStankey_ECR1.png")) ){
-  ggsave(psankeyscr1, filename = paste0(savepath,"/FigStankey_ECR1.png"), width = 12, height = 7, units = "in", dpi = 300)
+if( !file.exists(paste0(savepath,"/FigSankey_ECR1.png")) ){
+  ggsave(psankeyscr1, filename = paste0(savepath,"/FigSankey_ECR1.png"), width = 12, height = 7, units = "in", dpi = 300)
 }
+
+# Table 5 -  WAIC and LOO
+ICres <- data.frame()
+for( K in 2:5 ){
+  # K=2
+  BUGSout <- get(paste0("jagsfit3alcmm_k",K))$BUGSoutput
+  loglik_ <- BUGSout$sims.list$LogLik
+  waic_ <- waic(loglik_)
+  loo_ <- loo(loglik_)
+  WAIClclmma = waic_$estimates[rownames(waic_$estimates)=="waic",1]
+  LOOlclmma = loo_$est[rownames(loo_$est)=="looic",1]
+  
+  BUGSout <- get(paste0("jagsfit3blcmm_k",K))$BUGSoutput
+  loglik_ <- BUGSout$sims.list$LogLik
+  waic_ <- waic(loglik_)
+  loo_ <- loo(loglik_)
+  WAIClclmmb = waic_$estimates[rownames(waic_$estimates)=="waic",1]
+  LOOlclmmb = loo_$est[rownames(loo_$est)=="looic",1]
+  
+  BUGSout <- get(paste0("jagsfit3a_k",K))$BUGSoutput
+  loglik_ <- BUGSout$sims.list$LogLik
+  waic_ <- waic(loglik_)
+  loo_ <- loo(loglik_)
+  WAICnoincra = waic_$estimates[rownames(waic_$estimates)=="waic",1]
+  LOOnoincra = loo_$est[rownames(loo_$est)=="looic",1]
+  
+  BUGSout <- get(paste0("jagsfit3b_k",K))$BUGSoutput
+  loglik_ <- BUGSout$sims.list$LogLik
+  waic_ <- waic(loglik_)
+  loo_ <- loo(loglik_)
+  WAICnoincrb = waic_$estimates[rownames(waic_$estimates)=="waic",1]
+  LOOnoincrb = loo_$est[rownames(loo_$est)=="looic",1]
+  
+  dtK <- data.frame(K=K, 
+                    LS=c("STEPHENS", "ECR-1"), 
+                    WAIC.LCLMM = c(WAIClclmma, WAIClclmmb),
+                    WAIC.Prop =c(WAICnoincra, WAICnoincrb),
+                    LOO.LCLMM = c(LOOlclmma, LOOlclmmb),
+                    LOO.Prop =c(LOOnoincra, LOOnoincrb)
+  )
+  ICres <- rbind(ICres, dtK)
+}
+
+print(xtable::xtable(ICres[ICres$LS=="ECR-1",-2], digits = 2), include.rownames=F)
+
+
+### Table 5 - summaries for K=3 (ECR-1)
+K=3
+tabA1 <- summary(get(paste0("sample3b_lclmm_k",K)))$statistics
+tabA2 <- summary(get(paste0("sample3b_lclmm_k",K)))$quantiles
+tabB1 <- summary(get(paste0("sample3b_NOincr_k",K)))$statistics
+tabB2 <- summary(get(paste0("sample3b_NOincr_k",K)))$quantiles
+tabA <- data.frame(tabA1, CR=paste0("(",apply(formatC(tabA2[,c(1,5)], digits=3, format = "fg"), 1, paste0, collapse=","),")"))
+tabB <- data.frame(tabB1,  CR=paste0("(",apply(formatC(tabB2[,c(1,5)], digits=3, format = "fg"), 1, paste0, collapse=","),")"))
+# rownames(tabA) %in% rownames(tabB)
+# rownames(tabB) %in% rownames(tabA)
+Parameter <- rownames(tabB)
+## reorder to show betas first
+betasidx <- which(grepl("beta", Parameter))
+llidx <- which(grepl("LogLik", Parameter))
+Parameter <- Parameter[c(betasidx,(1:length(Parameter))[-c(betasidx,llidx)])]
+tabsummK3 <- data.frame(Parameter, 
+                        tabA[match(Parameter,rownames(tabA)),c(1:2,5)], 
+                        tabB[match(Parameter,rownames(tabB)),c(1:2,5)])
+
+print(xtable::xtable(tabsummK3, digits = 3), include.rownames=F)
+
+
 
 
 

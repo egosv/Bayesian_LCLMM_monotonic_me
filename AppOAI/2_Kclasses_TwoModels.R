@@ -1,6 +1,19 @@
+args = commandArgs(trailingOnly=TRUE)
+
+# test if there is at least one argument: if not, return an error
+if (length(args)==0) {
+  K <- 2
+} else if (length(args)==1) {
+  # default output file
+  K <- as.numeric(args[1])
+}else{
+  stop("This script only takes one argument (K)", call.=FALSE)
+}
+
+options(echo=TRUE)
+
 ###--------------------------------------------------
 # Latent Class Linear Mixed Models
-# Growth Mixture Models
 # Continuous response
 # K classes
 ###--------------------------------------------------
@@ -27,14 +40,15 @@ library(lcmm)
 library(label.switching)  #(version 1.3)       
 library(RColorBrewer)
 library(mnormt)
-library(dclone) # To run MCMC in
-library(snow)   # several cores
+library(dclone) # To run MCMC in several cores
+library(snow) 
 library(R2jags)
 library(abind)
 library(MCMCvis)
-
+library(loo) ### package to compute WAIC and LOO
 library(foreach)
 library(doParallel)
+
 ### Creating clusters to run a chain in each core
 detectCores()
 n.cores <- 40 ##detectCores()-2
@@ -58,100 +72,95 @@ n.update = 30000
 n.iter = 30000
 n.thin = 15
 
-# n.adapt = 500
-# n.update = 500
-# n.iter = 500
-# n.thin = 2
-
 
 ###--------------------------------------------------
 ### Functions for LABEL SWITCHING proposal
 {
-# Compute necessary information that will be additional input to the label.switching package.  
-# Define the complete log-likelihood function. 
-
-complete.loglikelihood <- function(iter, zclass, data2,
-                                   mcmc.pars, mcmc.beta0, mcmc.beta, mcmc.alpha, 
-                                   mcmc.tau2, mcmc.sigma2, mcmc.Gama0) { 
+  # Compute necessary information that will be additional input to the label.switching package.  
+  # Define the complete log-likelihood function. 
   
-  n <- data2$n
-  K <- data2$K
-  Yerror <- data2$Yerror
-  XX <- data2$X
-  ZZ <- data2$Z
-  UU <- data2$U
-  VV <- data2$V
-  offset <- data2$offset
-  
-  pars = mcmc.pars[iter,,]
-  beta0 = mcmc.beta0[iter]
-  beta = mcmc.beta[iter,]
-  alpha = mcmc.alpha[iter,,]
-  tau2 = mcmc.tau2[iter]
-  Gama0 = mcmc.Gama0[iter,,]
-  sigma2 = mcmc.sigma2[iter]
-  
-  lambda <- pars[,1:ncol(UU)]
-  m <- length(Yerror)
-  ###  logl <- rep(0, m)
-  ppi <- matrix(NA,n,K)
-  w <- matrix(NA,n,K)
-  eta <- rep(NA,n) 
-  eta2 <- rep(NA,n) 
-  logw <- rep(NA,n)
-  logl <- rep(NA,n)
-  for(j in 1:n){
-    for(k in 1:K){ 
-      ppi[j,k] <- exp(VV[j,]%*%alpha[k,])
-    } 
-    w[j,] <- ppi[j,]/sum(ppi[j,])
-    logw[j] <- log(w[j,zclass[j]])  
+  complete.loglikelihood <- function(iter, zclass, data2,
+                                     mcmc.pars, mcmc.beta0, mcmc.beta, mcmc.alpha, 
+                                     mcmc.tau2, mcmc.sigma2, mcmc.Gama0) { 
     
-    idx <- (offset[j]):(offset[j+1]-1)
-    eta2[idx] <- beta0 + XX[idx,]%*%beta + UU[idx,]%*%lambda[zclass[j],] 
-    for(i in offset[j]){
-      ###      eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],]
-      media <- eta2[i]
-      eta[i] <- media
-###      varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + tau2 + sigma2[zclass[j]]
-      varianza <- tau2 + sigma2[zclass[j]]
-      logl[i] <- dnorm(Yerror[i],mean=media,sd=sqrt(varianza), log=T)
-    }
-    for(i in (offset[j]+1):(offset[j+1]-1)){
-      ###      eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],]
-      beta2 <- (eta[i-1]-eta2[i])/sqrt(tau2)
-      z2 <- pnorm(beta2)
-      medtrunc <- sqrt(tau2)*(-dnorm(beta2))/z2 ### media de una normal truncada 
-      medaux <- ifelse(is.finite(medtrunc),medtrunc,0)  
-      media <- eta2[i]+medaux 
-      eta[i] <- media
-      vartrunc <- (1+ (-beta2*dnorm(beta2)/z2) -((-dnorm(beta2)/z2)^2)) ### varianza de una normal truncada
-      varaux <- tau2*ifelse(is.finite(vartrunc) & vartrunc>0,vartrunc,1)
-###      varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + varaux + sigma2[zclass[j]]
-      varianza <- varaux + sigma2[zclass[j]]
-      logl[i] <- dnorm(Yerror[i], mean=media, sd=sqrt(varianza), log=T)
-    }
-  } 
-  return(sum(logw)+sum(logl,na.rm=TRUE))
-}
-
-
-### computing allocation probabilities for stephens method and ECR-ITERATIVE-2
-fn.probabilities <- function(iter, data2, TT, mcmc.pars, 
-                             mcmc.tau2, mcmc.beta0, mcmc.beta, mcmc.alpha, mcmc.sigma2, mcmc.Gama0){   
-  n <- data2$n
-  K <- data2$K
-  m <- length(data2$Yerror)  
-  #  like <- rep(0, m)
-  Yerror <- data2$Yerror
-  XX <- data2$X
-  ZZ <- data2$Z
-  UU <- data2$U
-  VV <- data2$V
-  offset <- data2$offset
+    n <- data2$n
+    K <- data2$K
+    Yerror <- data2$Yerror
+    XX <- data2$X
+    ZZ <- data2$Z
+    UU <- data2$U
+    VV <- data2$V
+    offset <- data2$offset
+    
+    pars = mcmc.pars[iter,,]
+    beta0 = mcmc.beta0[iter]
+    beta = mcmc.beta[iter,]
+    alpha = mcmc.alpha[iter,,]
+    tau2 = mcmc.tau2[iter]
+    Gama0 = mcmc.Gama0[iter,,]
+    sigma2 = mcmc.sigma2[iter]
+    
+    lambda <- pars[,1:ncol(UU)]
+    m <- length(Yerror)
+    ###  logl <- rep(0, m)
+    ppi <- matrix(NA,n,K)
+    w <- matrix(NA,n,K)
+    eta <- rep(NA,n) 
+    eta2 <- rep(NA,n) 
+    logw <- rep(NA,n)
+    logl <- rep(NA,n)
+    for(j in 1:n){
+      for(k in 1:K){ 
+        ppi[j,k] <- exp(VV[j,]%*%alpha[k,])
+      } 
+      w[j,] <- ppi[j,]/sum(ppi[j,])
+      logw[j] <- log(w[j,zclass[j]])  
+      
+      idx <- (offset[j]):(offset[j+1]-1)
+      eta2[idx] <- beta0 + XX[idx,]%*%beta + UU[idx,]%*%lambda[zclass[j],] 
+      for(i in offset[j]){
+        ###      eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],]
+        media <- eta2[i]
+        eta[i] <- media
+        ###      varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + tau2 + sigma2[zclass[j]]
+        varianza <- tau2 + sigma2[zclass[j]]
+        logl[i] <- dnorm(Yerror[i],mean=media,sd=sqrt(varianza), log=T)
+      }
+      for(i in (offset[j]+1):(offset[j+1]-1)){
+        ###      eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],]
+        beta2 <- (eta[i-1]-eta2[i])/sqrt(tau2)
+        z2 <- pnorm(beta2)
+        medtrunc <- sqrt(tau2)*(-dnorm(beta2))/z2 ### media de una normal truncada 
+        medaux <- ifelse(is.finite(medtrunc),medtrunc,0)  
+        media <- eta2[i]+medaux 
+        eta[i] <- media
+        vartrunc <- (1+ (-beta2*dnorm(beta2)/z2) -((-dnorm(beta2)/z2)^2)) ### varianza de una normal truncada
+        varaux <- tau2*ifelse(is.finite(vartrunc) & vartrunc>0,vartrunc,1)
+        ###      varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + varaux + sigma2[zclass[j]]
+        varianza <- varaux + sigma2[zclass[j]]
+        logl[i] <- dnorm(Yerror[i], mean=media, sd=sqrt(varianza), log=T)
+      }
+    } 
+    return(sum(logw)+sum(logl,na.rm=TRUE))
+  }
   
-  proba <- array(data = NA, dim = c(1, n, K))
-#  for(iter in 1:m2){
+  
+  ### computing allocation probabilities for stephens method and ECR-ITERATIVE-2
+  fn.probabilities <- function(iter, data2, TT, mcmc.pars, 
+                               mcmc.tau2, mcmc.beta0, mcmc.beta, mcmc.alpha, mcmc.sigma2, mcmc.Gama0){   
+    n <- data2$n
+    K <- data2$K
+    m <- length(data2$Yerror)  
+    #  like <- rep(0, m)
+    Yerror <- data2$Yerror
+    XX <- data2$X
+    ZZ <- data2$Z
+    UU <- data2$U
+    VV <- data2$V
+    offset <- data2$offset
+    
+    proba <- array(data = NA, dim = c(1, n, K))
+    #  for(iter in 1:m2){
     tau2 <- mcmc.tau2[iter]
     lambda <- mcmc.pars[iter,,]
     beta0 <- mcmc.beta0[iter]
@@ -174,7 +183,7 @@ fn.probabilities <- function(iter, data2, TT, mcmc.pars,
           ###          eta[i,k] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[k,]
           media <- eta2[i,k]
           eta[i,k] <- media
-###          varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + tau2 + sigma2[k]
+          ###          varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + tau2 + sigma2[k]
           varianza <- tau2 + sigma2[k]
           like[i,k] <- dnorm(Yerror[i],mean=media,sd=sqrt(varianza), log=FALSE)
         } ### END i in offset[j]
@@ -189,7 +198,7 @@ fn.probabilities <- function(iter, data2, TT, mcmc.pars,
           eta[i,k] <- media
           vartrunc <- (1+ (-beta2*dnorm(beta2)/z2) -((-dnorm(beta2)/z2)^2)) ### varianza de una normal truncada
           varaux <- tau2*ifelse(is.finite(vartrunc) & vartrunc>0,vartrunc,1)
-###          varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + varaux + sigma2[k]
+          ###          varianza <- ZZ[i,]%*%Gama0%*%ZZ[i,] + varaux + sigma2[k]
           varianza <- varaux + sigma2[k]
           like[i,k] <- dnorm(Yerror[i], mean=media, sd=sqrt(varianza), log=FALSE)
         } ### END i in (offset[j]+1):(offset[j+1]-1)
@@ -198,85 +207,85 @@ fn.probabilities <- function(iter, data2, TT, mcmc.pars,
       w[j,] <- ppi[j,]/sum(ppi[j,])
       proba[1, j, ] <- (num[j,]*w[j,])/sum(num[j,]*w[j,])     
     } ### END j in 1:n
-#  } ### END iter in 1:m2
-  proba[is.na(proba)]=0
-  return(proba)
-}
-
-###--------------------------------------------------
-
-###--------------------------------------------------
-### Functions for LABEL SWITCHING lcmm
-
-# Compute necessary information that will be additional input to the label.switching package.  
-# Define the complete log-likelihood function. 
-
-complete.loglikelihood.lcmm <- function(iter, zclass, data2lcmm,
-                                        mcmc.pars, mcmc.beta0, mcmc.beta, mcmc.alpha, 
-                                        mcmc.tau2, mcmc.Gama0) { 
+    #  } ### END iter in 1:m2
+    proba[is.na(proba)]=0
+    return(proba)
+  }
   
-  n <- data2lcmm$n
-  K <- data2lcmm$K
-  Wtrue <- data2lcmm$Wtrue
-  XX <- data2lcmm$X
-  ZZ <- data2lcmm$Z
-  UU <- data2lcmm$U
-  VV <- data2lcmm$V
-  offset <- data2lcmm$offset
+  ###--------------------------------------------------
   
-  pars = mcmc.pars[iter,,]
-  beta0 = mcmc.beta0[iter]
-  beta = mcmc.beta[iter,]
-  alpha = mcmc.alpha[iter,,]
-  tau2 = mcmc.tau2[iter]
-  Gama0 = mcmc.Gama0[iter,,]
+  ###--------------------------------------------------
+  ### Functions for LABEL SWITCHING lcmm
   
-  lambda <- pars[,1:ncol(UU)]
-  m <- length(Wtrue)
-  ### logl <- rep(0, m)
-  ppi <- matrix(NA,n,K)
-  w <- matrix(NA,n,K)
-  ###   eta <- rep(NA,m) 
-  #   eta <- rep(NA,n) 
-  logw <- rep(NA,n)
-  logl <- rep(NA,n)
-  for(j in 1:n){
-    for(k in 1:K){ 
-      ppi[j,k] <- exp(VV[j,]%*%alpha[k,])
+  # Compute necessary information that will be additional input to the label.switching package.  
+  # Define the complete log-likelihood function. 
+  
+  complete.loglikelihood.lcmm <- function(iter, zclass, data2lcmm,
+                                          mcmc.pars, mcmc.beta0, mcmc.beta, mcmc.alpha, 
+                                          mcmc.tau2, mcmc.Gama0) { 
+    
+    n <- data2lcmm$n
+    K <- data2lcmm$K
+    Wtrue <- data2lcmm$Wtrue
+    XX <- data2lcmm$X
+    ZZ <- data2lcmm$Z
+    UU <- data2lcmm$U
+    VV <- data2lcmm$V
+    offset <- data2lcmm$offset
+    
+    pars = mcmc.pars[iter,,]
+    beta0 = mcmc.beta0[iter]
+    beta = mcmc.beta[iter,]
+    alpha = mcmc.alpha[iter,,]
+    tau2 = mcmc.tau2[iter]
+    Gama0 = mcmc.Gama0[iter,,]
+    
+    lambda <- pars[,1:ncol(UU)]
+    m <- length(Wtrue)
+    ### logl <- rep(0, m)
+    ppi <- matrix(NA,n,K)
+    w <- matrix(NA,n,K)
+    ###   eta <- rep(NA,m) 
+    #   eta <- rep(NA,n) 
+    logw <- rep(NA,n)
+    logl <- rep(NA,n)
+    for(j in 1:n){
+      for(k in 1:K){ 
+        ppi[j,k] <- exp(VV[j,]%*%alpha[k,])
+      } 
+      w[j,] <- ppi[j,]/sum(ppi[j,])
+      logw[j] <- log(w[j,zclass[j]])  
+      #      for(i in (offset[j]):(offset[j+1]-1)){
+      #         eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],] 
+      ###         logl[i] <- dnorm(Wtrue[i],mean=eta[i],sd=sqrt(tau2), log=T)
+      #      }
+      idx <- (offset[j]):(offset[j+1]-1)
+      media <- beta0 + XX[idx,]%*%beta + UU[idx,]%*%lambda[zclass[j],] 
+      ###      media <- beta0 + XX[idx,]%*%beta + ZZ[idx,]%*%gama.est[j,] + UU[idx,]%*%lambda[zclass[j],] 
+      varianza <- diag(tau2,length(idx)) ####+ ZZ[idx,]%*%Gama0%*%t(ZZ[idx,]) 
+      ###      varianza <- diag(tau2,length(idx)) 
+      varianza <- (varianza+t(varianza))/2
+      logl[j] <- dmnorm(Wtrue[idx], mean=t(media),varcov=varianza, log=T)
     } 
-    w[j,] <- ppi[j,]/sum(ppi[j,])
-    logw[j] <- log(w[j,zclass[j]])  
-    #      for(i in (offset[j]):(offset[j+1]-1)){
-    #         eta[i] <- beta0 + XX[i,]%*%beta + UU[i,]%*%lambda[zclass[j],] 
-    ###         logl[i] <- dnorm(Wtrue[i],mean=eta[i],sd=sqrt(tau2), log=T)
-    #      }
-    idx <- (offset[j]):(offset[j+1]-1)
-    media <- beta0 + XX[idx,]%*%beta + UU[idx,]%*%lambda[zclass[j],] 
-    ###      media <- beta0 + XX[idx,]%*%beta + ZZ[idx,]%*%gama.est[j,] + UU[idx,]%*%lambda[zclass[j],] 
-    varianza <- diag(tau2,length(idx)) ####+ ZZ[idx,]%*%Gama0%*%t(ZZ[idx,]) 
-    ###      varianza <- diag(tau2,length(idx)) 
-    varianza <- (varianza+t(varianza))/2
-    logl[j] <- dmnorm(Wtrue[idx], mean=t(media),varcov=varianza, log=T)
-  } 
-  return(sum(logw)+sum(logl,na.rm=TRUE))
-}
-
-# computing allocation probabilities for stephens method and ECR-ITERATIVE-2
-fn.probabilities.lcmm <- function(iter, data2lcmm, TT, 
-                                  mcmc.pars, mcmc.tau2, mcmc.beta0, mcmc.beta, mcmc.alpha, mcmc.Gama0){   
-  ###   like <- rep(0, data2lcmm$offset[n+1]-1)
-  n <- data2lcmm$n
-  K <- data2lcmm$K
-  m <- length(data2lcmm$Wtrue)
-  #  like <- rep(0, n)
-  Wtrue <- data2lcmm$Wtrue
-  XX <- data2lcmm$X
-  ZZ <- data2lcmm$Z
-  UU <- data2lcmm$U
-  VV <- data2lcmm$V
-  offset <- data2lcmm$offset
-  proba <- array(NA, dim = c(1, n, K))
-#  for(iter in 1:m2){
+    return(sum(logw)+sum(logl,na.rm=TRUE))
+  }
+  
+  # computing allocation probabilities for stephens method and ECR-ITERATIVE-2
+  fn.probabilities.lcmm <- function(iter, data2lcmm, TT, 
+                                    mcmc.pars, mcmc.tau2, mcmc.beta0, mcmc.beta, mcmc.alpha, mcmc.Gama0){   
+    ###   like <- rep(0, data2lcmm$offset[n+1]-1)
+    n <- data2lcmm$n
+    K <- data2lcmm$K
+    m <- length(data2lcmm$Wtrue)
+    #  like <- rep(0, n)
+    Wtrue <- data2lcmm$Wtrue
+    XX <- data2lcmm$X
+    ZZ <- data2lcmm$Z
+    UU <- data2lcmm$U
+    VV <- data2lcmm$V
+    offset <- data2lcmm$offset
+    proba <- array(NA, dim = c(1, n, K))
+    #  for(iter in 1:m2){
     tau2 <- mcmc.tau2[iter]
     lambda <- mcmc.pars[iter,,]
     beta0 <- mcmc.beta0[iter]
@@ -310,31 +319,31 @@ fn.probabilities.lcmm <- function(iter, data2lcmm, TT,
       #         proba[iter, j, ] <- (num[j,]*w[j,])/sum(num[j,]*w[j,])     
       proba[1, j, ] <- (like[j,]*w[j,])/sum(like[j,]*w[j,])     
     } 
-#  }
-  proba[is.na(proba)]=0
-  return(proba)
-}
-###--------------------------------------------------
-
-###--------------------------------------------------
-### computing complete loglikelihoods in order to find pivot
-fn.zmapindex <- function(zclass, logLvec, m2){
-  iter <- 1
-  mapindex <- 1
-  maxL <- logLvec[iter]
-  for(iter in 2:m2) {
-    logL <- logLvec[iter]
-    if(logL > maxL) {
-      maxL <- logL
-      mapindex <- iter
-    } 
+    #  }
+    proba[is.na(proba)]=0
+    return(proba)
   }
-  print(paste("complete likelihood pivot = ", mapindex))
-  mapindex <- mapindex
-  zmap <- zclass[mapindex, ]
-  return(list("mapindex"=mapindex,"zmap"=zmap,"maxL"=maxL))
-}
-###--------------------------------------------------
+  ###--------------------------------------------------
+  
+  ###--------------------------------------------------
+  ### computing complete loglikelihoods in order to find pivot
+  fn.zmapindex <- function(zclass, logLvec, m2){
+    iter <- 1
+    mapindex <- 1
+    maxL <- logLvec[iter]
+    for(iter in 2:m2) {
+      logL <- logLvec[iter]
+      if(logL > maxL) {
+        maxL <- logL
+        mapindex <- iter
+      } 
+    }
+    print(paste("complete likelihood pivot = ", mapindex))
+    mapindex <- mapindex
+    zmap <- zclass[mapindex, ]
+    return(list("mapindex"=mapindex,"zmap"=zmap,"maxL"=maxL))
+  }
+  ###--------------------------------------------------
 }
 ###--------------------------------------------------
 
@@ -378,10 +387,10 @@ offset <- c(offset,nrow(data0b)+1)
 
 ### data needed for the JAGS models
 Yerror = data0b[,outcome]
-X = cbind(data0b$AGE_BL, data0b$SEXM) # overall fixed effects
+X = cbind(data0b$AGE_BL, data0b$SEXM, data0b$BMI, data0b$WOMTSmax) # overall fixed effects
 Z = cbind(rep(1,nrow(data0b)),data0b$TIMEyr) ### random effects
 U = cbind(rep(1,nrow(data0b)),data0b$TIMEyr,data0b$TIMEyr2)   ### class-specific fixed effects
-V = cbind(data0b$BMI, data0b$WOMTSmax) # class-membership effects
+V = cbind(data0b$AGE_BL, data0b$SEXM, data0b$BMI)[data0b$VISIT=="V00", ] # class-membership effects
 
 n = length(unique(data0b$ID))
 TT = 7
@@ -395,7 +404,7 @@ ID1 = ID0[as.character(data0b$ID),"ID"]
 data1 <- with(data0b, data.frame("id"=ID1, "Yerror"=Yerror, 
                                  "time"=TIMEyr, "time2"=TIMEyr2, 
                                  "x1"=AGE_BL, "x2"=SEXM, 
-                      "v1"=BMI, "v2"=WOMTSmax) )
+                                 "x3"=BMI, "x4"=WOMTSmax))
 
 str(data1)
 
@@ -505,20 +514,6 @@ tmp <- parJagsModel(cl, name="fit1", file="lclmm_Kclasses_error_NOincrease.jag",
 
 tmp <- parUpdate(cl, "fit1", n.iter=n.update, thin=n.thin)
 
-### Revisar si las cadenas convergen, aunque se tenga label switching
-#sample1 <- coda.samples(fit1, param1, n.iter=n.iter, thin=n.thin)
-
-#sample1 <- parCodaSamples(cl, model="fit1", variable.names=param1, 
-#                            n.iter=n.iter, thin=n.thin)
-
-#plot(sample1)
-#summary(sample1)
-
-### Necesitaremos estas cadenas para el label switching
-#sample2 <- coda.samples(fit1, param2, n.iter=n.iter, thin=n.thin)
-# attributes(sample2)
-#plot(sample2)
-#summary(sample2)
 
 sample2 <- parCodaSamples(cl, model="fit1", variable.names=param2, 
                           n.iter=n.iter, thin=n.thin)
@@ -527,7 +522,7 @@ sample2 <- parCodaSamples(cl, model="fit1", variable.names=param2,
 
 ###--------------------------------------------------
 
-### data for JAGS model
+### data for LCLMM JAGS model
 data2lcmm <- list(Wtrue=Yerror, R2w=(max(Yerror[offset[-(n+1)]])-min(Yerror[offset[-(n+1)]])),  ### response variable 
                   X=X, L=ncol(X), zeros.beta=rep(0,ncol(X)), prior.betaB=diag(ncol(X))*0.1,   # fixed effects
                   Z=Z, M=ncol(Z), zeros.gama=t(rep(0,ncol(Z))), R.u=diag(1,ncol(Z)),   # random effects
@@ -549,11 +544,7 @@ sample2lcmm <- parCodaSamples(cl, model="fit1lcmm", variable.names=param2lcmm,
 ###--------------------------------------------------
 ### LABEL SWITCHING 
 ###--------------------------------------------------
-### LABEL SWITCHING 
-### es necesario ordenar las salidas de R que se obtienen en "sample2" para aplicar el "label.switching"
-### algunas cosas se deben modificar, dependiendo de los datos: matrices Z (parametro lambda)
-### se usa una verosimilitud aproximada (porque la exacta depende de las variables latentes)
-### se usa una probabilidad de pertenencia a la clase aproximada 
+### The R output from "sample2" needs to be sorted to fix the label switching in the post-process. Some things need to be modified according with the data, e.g., Z matrices (related to the lambda parameter). An approximate likelihood is used because the exact likelihood depends on the latent variables themselves. Similarly, the probability of class membership is also approximated.
 
 
 ### DATA and LISTS for Label Switching 
@@ -600,8 +591,7 @@ for(chain in 1:n.chains){
 }
 
 # Compute necessary information that will be additional input to the
-# label.switching package.  Define the complete log-likelihood function 
-# esta verosimilitud es aproximada
+# label.switching package.  Define the complete (approximated) log-likelihood function 
 
 ### computing complete loglikelihoods (in parallel) in order to find pivot
 nil <- clusterEvalQ(cl0, library(mnormt))
@@ -694,7 +684,6 @@ for(chain in 1:n.chains){
 }
 
 ### computing complete loglikelihoods (in parallel) in order to find pivot
-# nil <- clusterEvalQ(cl, library(mnormt))
 logLvec.lcmm <- parSapply(cl0, 1:m2, complete.loglikelihood.lcmm, zclass=zclass, data2lcmm = data2lcmm,
                      mcmc.pars = mcmc.pars, mcmc.beta0 = mcmc.beta0, mcmc.beta = mcmc.beta, mcmc.alpha = mcmc.alpha, 
                      mcmc.tau2 = mcmc.tau2, mcmc.Gama0 = mcmc.Gama0)
@@ -731,10 +720,9 @@ lslcmm <- label.switching(method = set,
 
 
 ###--------------------------------------------------
-### USAR JAGS y la CLASE ESTIMADA por label.switching 
-
-### Elegir las clases de alguno de los metodos
-### STEPHENS, PRA, ECR, ECR-ITERATIVE-1, ECR-ITERATIVE-2, AIC
+### use JAGS and the ESTIMATED CLASS for label switching
+stopCluster(cl0) 
+stopCluster(cl) # stop cluster
 
 data3 <- list(Yerror=Yerror, R2w=(max(Yerror)-min(Yerror)), 
               X=X, L=ncol(X), zeros.beta=rep(0,ncol(X)), prior.betaB=diag(ncol(X))*0.1,   ### fixed effects
@@ -745,25 +733,42 @@ data3 <- list(Yerror=Yerror, R2w=(max(Yerror)-min(Yerror)),
               K=K,   ### number of classes 
               g=ls$clusters["STEPHENS",] )   ### indicator for classes
 
-tmp <- parJagsModel(cl, name="fit3a", file="lclmm_Kclasses_error_NOincrease_labelswitching.jag",
-             data=data3, inits=inits3, n.chains=n.chains)
 
-tmp <- parUpdate(cl, "fit3a", n.iter=n.adapt, thin=n.thin)
+list2env(data3, envir=.GlobalEnv)
 
-sample3aNOincr <- parCodaSamples(cl, model="fit3a", variable.names=param3,
-                              n.iter=n.iter, thin=n.thin)
+### use jags.parallel to obtain the LogLik
+jagsfit3a <- jags.parallel(
+  data = c(names(data3), "data3", "n.iter", "n.chains", "n.thin"),
+  inits = inits3,
+  parameters.to.save = c(param3,"LogLik"),
+  n.iter = n.iter,
+  n.chains = n.chains,
+  n.cluster = n.chains,
+  n.thin = n.thin,
+  jags.module = c("glm","dic"), DIC=TRUE, ### default
+  model.file="lclmm_Kclasses_error_NOincrease_labelswitching.jag")
 
-
+### For ECR-1
 data3$g <- ls$clusters["ECR-ITERATIVE-1",]
 
-tmp <- parJagsModel(cl, name="fit3b", file="lclmm_Kclasses_error_NOincrease_labelswitching.jag",
-             data=data3, inits=inits3, n.chains=n.chains)
+list2env(data3, envir=.GlobalEnv)
 
-tmp <- parUpdate(cl, "fit3b", n.iter=n.adapt, thin=n.thin)
+jagsfit3b <- jags.parallel(
+  data = c(names(data3), "data3", "n.iter", "n.chains", "n.thin"),
+  inits = inits3,
+  parameters.to.save = c(param3,"LogLik"),
+  n.iter = n.iter,
+  n.chains = n.chains,
+  n.cluster = n.chains,
+  n.thin = n.thin,
+  jags.module = c("glm","dic"), DIC=TRUE, ### default
+  model.file="lclmm_Kclasses_error_NOincrease_labelswitching.jag")
 
-sample3bNOincr <- parCodaSamples(cl, model="fit3b", variable.names=param3,
-                           n.iter=n.iter, thin=n.thin)
+### nice summary
+# print(jagsfit3a)
 
+### Same as coda.samples output
+sample3aNOincr <- as.mcmc.list(as.mcmc(jagsfit3a))
 
 all <- as.matrix(sample3aNOincr, iters = TRUE, chains=TRUE)
 pD <- var(all[,"deviance"])/2
@@ -771,50 +776,45 @@ DICall <- mean(all[,"deviance"]) + pD
 cat("Proposal Sample3a:")
 c(DIC=DICall,pD=pD)
 
+### { Codigo WAIC LOO (loo package)
+loglik_propa <- jagsfit3a$BUGSoutput$sims.list$LogLik
+waic(loglik_propa)
+loo(loglik_propa)
+jagsfit3a$BUGSoutput$DIC
+### }
+
+
+### nice summary
+# print(jagsfit3b)
+
+### Same as coda.samples output
+sample3bNOincr <- as.mcmc.list(as.mcmc(jagsfit3b))
+
 all <- as.matrix(sample3bNOincr, iters = TRUE, chains=TRUE)
 pD <- var(all[,"deviance"])/2
 DIC <- mean(all[,"deviance"]) + pD
 cat("Proposal Sample3b:")
 c(DIC=DIC,pD=pD)
 
-MCMCsummary(sample3aNOincr, digits=3)
-MCMCsummary(sample3bNOincr, digits=3)
+### { Codigo WAIC LOO (loo package)
+loglik_propb <- jagsfit3b$BUGSoutput$sims.list$LogLik
+waic(loglik_propb)
+loo(loglik_propb)
+jagsfit3b$BUGSoutput$DIC
+### }
 
-summary(sample3aNOincr)
-summary(sample3bNOincr)
+MCMCsummary(sample3aNOincr, params = param3, digits=3)
+MCMCsummary(sample3bNOincr, params = param3, digits=3)
+
+# summary(sample3aNOincr)
+# summary(sample3bNOincr)
 
 labswi <- ls
 sample3a <- sample3aNOincr
 sample3b <- sample3bNOincr
-save(labswi, sample3a, sample3b, file = paste0(savepath,'/Sample3_K=',K,"_error_NOincreasing_OAI.RData"))
+save(labswi, sample3a, sample3b, jagsfit3a, jagsfit3b, file = paste0(savepath,'/Sample3_K=',K,"_error_NOincreasing_OAI.RData"))
 
-### If using R2jags
-# list2env(data3, envir=.GlobalEnv)
-# 
-# jagsfit3 <- jags.parallel(
-#   data=c(names(data3), "data3", "n.iter", "n.chains", "n.thin"), 
-#   inits=inits3, 
-#   parameters.to.save=param3, 
-#   n.iter=n.iter, 
-#   n.chains=n.chains,
-#   n.cluster=n.chains,
-#   n.thin = n.thin,
-#   model.file="lclmm_Kclasses_error_NOincrease_labelswitching.jag")
-# 
-# 
-# ### nice summary
-# print(jagsfit3)
-# 
-# ### Same as coda.samples output
-# sample3 <- as.mcmc.list(as.mcmc(jagsfit3))
-# 
-# ### Extract DIC
-# DIC[sim,] = jagsfit3$BUGSoutput$DIC
-# 
-# 
-# PARAM[sim,,1] = unlist(jagsfit3$BUGSoutput$mean)
-# PARAM[sim,,2] = unlist(jagsfit3$BUGSoutput$sd)
-# PARAM[sim,,3] = unlist(jagsfit3$BUGSoutput$median)
+
 
 ###--------------------------------------------------
 
@@ -827,26 +827,38 @@ data3lcmm <- list(Wtrue=Yerror, R2w=(max(Yerror)-min(Yerror)),   ### response va
                   K=K,   ### number of classes 
                   g=lslcmm$clusters["STEPHENS",])   ### indicator for classes
 
-tmp <- parJagsModel(cl, name="fit3alcmm", file="lclmm_Kclasses_lclmm_labelswitching.jag",
-             data=data3lcmm, inits=inits3lcmm, n.chains=n.chains)
+list2env(data3lcmm, envir=.GlobalEnv)
 
-tmp <- parUpdate(cl, "fit3alcmm", n.iter=n.adapt, thin=n.thin)
-
-sample3alcmm <- parCodaSamples(cl, model="fit3alcmm", variable.names=param3lcmm,
-                          n.iter=n.iter, thin=n.thin)
+jagsfit3alcmm <- jags.parallel(
+  data = c(names(data3lcmm), "data3lcmm", "n.iter", "n.chains", "n.thin"),
+  inits = inits3lcmm,
+  parameters.to.save = c(param3lcmm,"LogLik"),
+  n.iter = n.iter,
+  n.chains = n.chains,
+  n.cluster = n.chains,
+  n.thin = n.thin,
+  jags.module = c("glm","dic"), DIC = TRUE, ### default
+  model.file="lclmm_Kclasses_lclmm_labelswitching.jag")
 
 
 data3lcmm$g <- ls$clusters["ECR-ITERATIVE-1",]
 
-tmp <- parJagsModel(cl, name="fit3blcmm", file="lclmm_Kclasses_lclmm_labelswitching.jag",
-             data=data3lcmm, inits=inits3lcmm, n.chains=n.chains)
+list2env(data3lcmm, envir=.GlobalEnv)
 
-tmp <- parUpdate(cl, "fit3blcmm", n.iter=n.adapt, thin=n.thin)
+jagsfit3blcmm <- jags.parallel(
+  data = c(names(data3lcmm), "data3lcmm", "n.iter", "n.chains", "n.thin"),
+  inits = inits3lcmm,
+  parameters.to.save = c(param3lcmm,"LogLik"),
+  n.iter = n.iter,
+  n.chains = n.chains,
+  n.cluster = n.chains,
+  n.thin = n.thin,
+  jags.module = c("glm","dic"), DIC = TRUE, ### default
+  model.file="lclmm_Kclasses_lclmm_labelswitching.jag")
 
-sample3blcmm <- parCodaSamples(cl, model="fit3blcmm", variable.names=param3lcmm,
-                           n.iter=n.iter, thin=n.thin)
 
-
+### Same as coda.samples output
+sample3alcmm <- as.mcmc.list(as.mcmc(jagsfit3alcmm))
 
 all <- as.matrix(sample3alcmm, iters = TRUE, chains=TRUE)
 pD <- var(all[,"deviance"])/2
@@ -854,44 +866,41 @@ DICall <- mean(all[,"deviance"]) + pD
 cat("LCMM Sample3a:")
 c(DIC=DICall,pD=pD)
 
+### { Codigo WAIC LOO (loo package)
+loglik_lcmma <- jagsfit3alcmm$BUGSoutput$sims.list$LogLik
+waic(loglik_lcmma)
+loo(loglik_lcmma)
+jagsfit3alcmm$BUGSoutput$DIC
+### }
+
+### nice summary
+# print(jagsfit3blcmm)
+
+### Same as coda.samples output
+sample3blcmm <- as.mcmc.list(as.mcmc(jagsfit3blcmm))
+
 all <- as.matrix(sample3blcmm, iters = TRUE, chains=TRUE)
 pD <- var(all[,"deviance"])/2
 DIC <- mean(all[,"deviance"]) + pD
 cat("LCMM Sample3b:")
 c(DIC=DIC,pD=pD)
 
-MCMCsummary(sample3alcmm, digits=3)
-MCMCsummary(sample3blcmm, digits=3)
+### { Codigo WAIC LOO (loo package)
+loglik_lcmmb <- jagsfit3blcmm$BUGSoutput$sims.list$LogLik
+waic(loglik_lcmmb)
+loo(loglik_lcmmb)
+jagsfit3blcmm$BUGSoutput$DIC
+### }
 
-summary(sample3alcmm)
-summary(sample3blcmm)
+MCMCsummary(sample3alcmm, params = param3lcmm, digits=3)
+
+MCMCsummary(sample3blcmm, params = param3lcmm, digits=3)
+
+# summary(sample3alcmm)
+# summary(sample3blcmm)
 
 labswi <- lslcmm
 sample3a <- sample3alcmm
 sample3b <- sample3blcmm
-save(labswi, sample3a, sample3b, file = paste0(savepath,'/Sample3_K=',K,"_lclmm_OAI.RData"))
-
-### If using R2jags
-# list2env(data3lcmm, envir=.GlobalEnv)
-# 
-# jagsfit3.lcmm <- jags.parallel(
-#   data = c(names(data3lcmm), "data3lcmm", "n.iter", "n.chains", "n.thin"), 
-#   inits = inits3lcmm, 
-#   parameters.to.save = param3lcmm, 
-#   n.iter = n.iter, 
-#   n.chains = n.chains,
-#   n.cluster = n.chains,
-#   n.thin = n.thin,
-#   model.file="lclmm_Kclasses_lclmm_labelswitching.jag")
-# 
-# 
-# ### nice summary 
-# print(jagsfit3.lcmm) 
-# 
-# ### Same as coda.samples output
-# sample3.lcmm <- as.mcmc.list(as.mcmc(jagsfit3.lcmm))
-# 
-
-stopCluster(cl)
-
+save(labswi, sample3a, sample3b, jagsfit3alcmm, jagsfit3blcmm, file = paste0(savepath,'/Sample3_K=',K,"_lclmm_OAI.RData"))
 
