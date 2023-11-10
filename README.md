@@ -14,7 +14,7 @@ The JAGS code for the described models is located in files:
 * `lclmm_Kclasses_error_NOincrease_labelswitching.jag` - proposed model post-label switching
 
 ### Simulation code
-File "lclmm_Kclasses_error_NOincrease.R" produces an analogous analysis to the one described in Section 5 ‘Simulation example’, but with different simulated data and without cross-validation. 
+File "lclmm_Kclasses_monotonic_me_sim.R" produces an analogous analysis to the one described in Section 5 ‘Simulation example’, but with different simulated data and a single set of 20 replicates. 
 
 ### AppOAI
 This folder contains detailed R scrips to reproduce the analysis performed on the motivating data from the Osteoarthritis Initiative (OAI). Note that no data from the OAI were made available. Researchers can request access to these data through [this link](https://nda.nih.gov/oai/), which containts more information of the study.
